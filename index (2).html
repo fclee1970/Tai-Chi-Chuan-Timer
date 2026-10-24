@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>專業運動訓練計時器 Pro Interval Timer</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <style>
+    /* 基礎樣式與主題切換 */
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      touch-action: manipulation;
+      -webkit-user-select: none;
+      user-select: none;
+      overflow-x: hidden;
+      transition: background-color 0.4s ease, color 0.4s ease;
+    }
+
+    /* 全屏狀態情境背景色 */
+    .bg-prep { background-color: #1e3a8a; color: #ffffff; }     /* 深藍 - 準備 PREP */
+    .bg-work { background-color: #065f46; color: #ffffff; }     /* 翡翠綠 - 練習 WORK */
+    .bg-rest { background-color: #9a3412; color: #ffffff; }     /* 活力橘 - 休息 REST */
+    .bg-idle { background-color: #111827; color: #f3f4f6; }     /* 待機/暫停 IDLE */
+    .bg-done { background-color: #7e22ce; color: #ffffff; }     /* 紫金 - 訓練完成 DONE */
+
+    /* 關鍵：數字顯示容器 (點擊穿透 + 溢出防裁切) */
+    .timer-container {
+      pointer-events: none !important; /* 讓點擊動作穿透至後方與下方的控制項 */
+      overflow: visible !important;   /* 防字體拉大後被剪裁 */
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      z-index: 10;
+    }
+
+    .time-display {
+      font-variant-numeric: tabular-nums;
+      line-height: 0.95;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      white-space: nowrap;
+      text-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      display: inline-block;
+      transform-origin: center center;
+      transition: transform 0.1s ease-out;
+    }
+
+    /* 按鈕與操作控制區：最上層高優先級 z-index */
+    .interactive-element {
+      pointer-events: auto !important;
+      position: relative;
+      z-index: 100 !important; /* 確保高於數字容器，解決截圖中按鈕被遮檔的問題 */
+    }
+
+    /* Modal Backdrop */
+    .modal-backdrop {
+      background-color: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(8px);
+    }
+
+    /* 自訂 Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-idle min-h-screen flex flex-col justify-between p-4 sm:p-6 select-none transition-colors duration-500">
+
+  <!-- 頂部資訊與選單欄 -->
+  <header class="interactive-element flex justify-between items-center w-full max-w-5xl mx-auto pt-2 pb-2">
+    <!-- 預設選單 Selector -->
+    <div class="flex items-center space-x-2 bg-black/40 backdrop-blur-md p-2 rounded-2xl border border-white/10 shadow-lg">
+      <i class="fa-solid fa-bars-staggered text-emerald-400 pl-2"></i>
+      <select id="presetSelect" class="bg-transparent text-white font-bold text-sm sm:text-base outline-none pr-2 cursor-pointer">
+        <option value="preset1" class="bg-gray-900 text-white">第1種: 54劍 (練5m/休1.5m)</option>
+        <option value="preset2" class="bg-gray-900 text-white">第2種: 32刀 (練4m/休1.5m)</option>
+        <option value="preset3" class="bg-gray-900 text-white">第3種: 九九42式 (練6m/休2m)</option>
+        <option value="preset4" class="bg-gray-900 text-white">第4種: 64式第1段 (練7m/休2m)</option>
+        <option value="preset5" class="bg-gray-900 text-white">第5種: 64式第2段 (練8m/休2.5m)</option>
+        <option value="preset6" class="bg-gray-900 text-white">第6種: 24式 (練5m/休2m)</option>
+        <option value="custom" class="bg-gray-900 text-amber-300">⚙️ 自訂計時參數</option>
+      </select>
+    </div>
+
+    <!-- 功能按鈕群 -->
+    <div class="flex items-center space-x-3">
+      <button id="wakeLockBtn" title="螢幕常亮" class="w-11 h-11 rounded-2xl bg-black/40 border border-white/10 flex items-center justify-center text-amber-400 transition active:scale-90 hover:bg-black/60 shadow-lg">
+        <i class="fa-solid fa-lightbulb"></i>
+      </button>
+      <button id="audioMuteBtn" title="靜音/聲音" class="w-11 h-11 rounded-2xl bg-black/40 border border-white/10 flex items-center justify-center text-white transition active:scale-90 hover:bg-black/60 shadow-lg">
+        <i class="fa-solid fa-volume-high"></i>
+      </button>
+      <button id="openSettingsBtn" title="詳細設定" class="w-11 h-11 rounded-2xl bg-black/40 border border-white/10 flex items-center justify-center text-white transition active:scale-90 hover:bg-black/60 shadow-lg">
+        <i class="fa-solid fa-gear"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- 中央計時顯示區 -->
+  <main class="flex-1 flex flex-col justify-center items-center w-full my-auto py-2 relative">
+    
+    <!-- 階段與組數標籤 -->
+    <div class="interactive-element flex flex-col items-center mb-2 space-y-1">
+      <div id="phaseBadge" class="px-5 py-1.5 rounded-full text-xs sm:text-sm font-extrabold tracking-widest uppercase bg-white/20 border border-white/30 text-white shadow-xl">
+        準備 PREP
+      </div>
+      <div class="text-sm sm:text-base font-semibold tracking-wide text-white/80 flex items-center gap-2">
+        <span>組數 ROUND</span>
+        <span id="roundDisplay" class="font-bold text-white bg-black/40 px-3 py-0.5 rounded-xl border border-white/10">1 / 8</span>
+      </div>
+    </div>
+
+    <!-- 超大數字容器 (預設 pointer-events: none, 防止阻擋按鈕點擊) -->
+    <div class="timer-container w-full py-4 my-auto">
+      <div id="timeDisplay" class="time-display">00:15</div>
+    </div>
+
+    <!-- 正數 / 倒數標籤 -->
+    <div id="modeIndicator" class="interactive-element text-xs sm:text-sm font-bold tracking-wider text-white/70 bg-black/30 px-3.5 py-1 rounded-full border border-white/10 mt-1">
+      ▼ 倒數計時
+    </div>
+  </main>
+
+  <!-- 下方控制面板（包含：加減秒數列 + 核心操作鍵） -->
+  <footer class="interactive-element w-full max-w-4xl mx-auto flex flex-col items-center space-y-4 mb-2">
+    
+    <!-- 加減秒數按鈕區域 (解決遮擋重點：高 z-index) -->
+    <div id="quickAdjustBar" class="flex items-center justify-center gap-2 sm:gap-3 flex-wrap">
+      <button onclick="adjustCurrentPhaseTime(-60)" class="px-3.5 py-2 bg-black/50 hover:bg-black/70 border border-white/20 rounded-xl text-xs sm:text-sm font-bold text-white transition active:scale-90 shadow-md">-1分</button>
+      <button onclick="adjustCurrentPhaseTime(-15)" class="px-3.5 py-2 bg-black/50 hover:bg-black/70 border border-white/20 rounded-xl text-xs sm:text-sm font-bold text-white transition active:scale-90 shadow-md">-15秒</button>
+      <button onclick="adjustCurrentPhaseTime(-5)" class="px-3.5 py-2 bg-black/50 hover:bg-black/70 border border-white/20 rounded-xl text-xs sm:text-sm font-bold text-amber-300 transition active:scale-90 shadow-md">-5秒</button>
+      <button onclick="adjustCurrentPhaseTime(5)" class="px-3.5 py-2 bg-black/50 hover:bg-black/70 border border-white/20 rounded-xl text-xs sm:text-sm font-bold text-emerald-300 transition active:scale-90 shadow-md">+5秒</button>
+      <button onclick="adjustCurrentPhaseTime(15)" class="px-3.5 py-2 bg-black/50 hover:bg-black/70 border border-white/20 rounded-xl text-xs sm:text-sm font-bold text-white transition active:scale-90 shadow-md">+15秒</button>
+      <button onclick="adjustCurrentPhaseTime(60)" class="px-3.5 py-2 bg-black/50 hover:bg-black/70 border border-white/20 rounded-xl text-xs sm:text-sm font-bold text-white transition active:scale-90 shadow-md">+1分</button>
+    </div>
+
+    <!-- 播放 / 暫停 / 重置 控制組 -->
+    <div class="flex items-center justify-center space-x-6 sm:space-x-10 w-full">
+      <!-- 重置 -->
+      <button id="resetBtn" class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-90 border border-white/20 text-white flex items-center justify-center text-xl sm:text-2xl transition shadow-xl">
+        <i class="fa-solid fa-rotate-left"></i>
+      </button>
+
+      <!-- 開始/暫停主按鈕 -->
+      <button id="togglePlayBtn" class="px-8 sm:px-12 py-3.5 sm:py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 active:scale-95 text-white font-black text-xl sm:text-2xl shadow-2xl flex items-center justify-center space-x-3 transition border border-white/30 min-w-[170px] sm:min-w-[210px]">
+        <i id="playIcon" class="fa-solid fa-play"></i>
+        <span id="playText">開始訓練</span>
+      </button>
+
+      <!-- 跳過下一階段 -->
+      <button id="skipBtn" class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-90 border border-white/20 text-white flex items-center justify-center text-xl sm:text-2xl transition shadow-xl">
+        <i class="fa-solid fa-forward-step"></i>
+      </button>
+    </div>
+  </footer>
+
+  <!-- 詳細設定 Drawer / Modal -->
+  <div id="settingsModal" class="fixed inset-0 z-[200] modal-backdrop hidden flex justify-center items-center p-4">
+    <div class="bg-gray-900 border border-gray-700 w-full max-w-2xl rounded-3xl p-6 shadow-2xl text-white max-h-[90vh] overflow-y-auto">
+      
+      <!-- Modal Header -->
+      <div class="flex justify-between items-center pb-4 mb-4 border-b border-gray-800">
+        <h2 class="text-xl font-bold flex items-center gap-2 text-emerald-400">
+          <i class="fa-solid fa-sliders"></i> 計時器與縮放設定
+        </h2>
+        <button id="closeSettingsBtn" class="w-8 h-8 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white flex items-center justify-center">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="space-y-6 text-sm">
+        
+        <!-- 1. 時間與計時方向設定 -->
+        <div>
+          <h3 class="text-base font-semibold text-gray-300 mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-stopwatch text-amber-400"></i> 各階段時間與方向
+          </h3>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- 準備 -->
+            <div class="bg-gray-800/60 p-3 rounded-2xl border border-gray-700/60 space-y-2">
+              <label class="block font-semibold text-blue-300">準備階段 (Prep)</label>
+              <div class="flex items-center justify-between">
+                <button onclick="adjustSettingVal('prepSec', -5)" class="px-2.5 py-1 bg-gray-700 hover:bg-gray-600 rounded font-bold text-white">-5s</button>
+                <span id="cfgPrepText" class="font-mono text-base font-bold">15 秒</span>
+                <button onclick="adjustSettingVal('prepSec', 5)" class="px-2.5 py-1 bg-gray-700 hover:bg-gray-600 rounded font-bold text-white">+5s</button>
+              </div>
+              <div class="flex items-center justify-between pt-1 text-xs text-gray-400">
+                <span>計時方向:</span>
+                <select id="prepModeSelect" onchange="updateCustomMode('prep', this.value)" class="bg-gray-700 text-white rounded px-2 py-0.5 outline-none">
+                  <option value="down">倒數</option>
+                  <option value="up">正數</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- 練習 -->
+            <div class="bg-gray-800/60 p-3 rounded-2xl border border-gray-700/60 space-y-2">
+              <label class="block font-semibold text-emerald-300">練習階段 (Work)</label>
+              <div class="flex items-center justify-between">
+                <button onclick="adjustSettingVal('workSec', -5)" class="px-2.5 py-1 bg-gray-700 hover:bg-gray-600 rounded font-bold text-white">-5s</button>
+                <span id="cfgWorkText" class="font-mono text-base font-bold">5 分 00 秒</span>
+                <button onclick="adjustSettingVal('workSec', 5)" class="px-2.5 py-1 bg-gray-700 hover:bg-gray-600 rounded font-bold text-white">+5s</button>
+              </div>
+              <div class="flex items-center justify-between pt-1 text-xs text-gray-400">
+                <span>計時方向:</span>
+                <select id="workModeSelect" onchange="updateCustomMode('work', this.value)" class="bg-gray-700 text-white rounded px-2 py-0.5 outline-none">
+                  <option value="up">正數 (預設)</option>
+                  <option value="down">倒數</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- 休息 -->
+            <div class="bg-gray-800/60 p-3 rounded-2xl border border-gray-700/60 space-y-2">
+              <label class="block font-semibold text-orange-300">休息階段 (Rest)</label>
+              <div class="flex items-center justify-between">
+                <button onclick="adjustSettingVal('restSec', -5)" class="px-2.5 py-1 bg-gray-700 hover:bg-gray-600 rounded font-bold text-white">-5s</button>
+                <span id="cfgRestText" class="font-mono text-base font-bold">1 分 30 秒</span>
+                <button onclick="adjustSettingVal('restSec', 5)" class="px-2.5 py-1 bg-gray-700 hover:bg-gray-600 rounded font-bold text-white">+5s</button>
+              </div>
+              <div class="flex items-center justify-between pt-1 text-xs text-gray-400">
+                <span>計時方向:</span>
+                <select id="restModeSelect" onchange="updateCustomMode('rest', this.value)" class="bg-gray-700 text-white rounded px-2 py-0.5 outline-none">
+                  <option value="up">正數 (預設)</option>
+                  <option value="down">倒數</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- 總組數 -->
+          <div class="mt-3 flex items-center justify-between bg-gray-800/40 p-3 rounded-2xl border border-gray-700/40">
+            <span class="font-semibold text-gray-300">總循環組數 (Rounds):</span>
+            <div class="flex items-center space-x-3">
+              <button onclick="adjustSettingVal('rounds', -1)" class="w-8 h-8 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-white">-1</button>
+              <span id="cfgRoundsText" class="font-mono text-base font-bold text-emerald-400">8 組</span>
+              <button onclick="adjustSettingVal('rounds', 1)" class="w-8 h-8 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-white">+1</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 字體獨立伸縮 (橫屏 / 直屏 X-Y 軸) -->
+        <div>
+          <h3 class="text-base font-semibold text-gray-300 mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-expand text-cyan-400"></i> 字體螢幕縮放 (獨立 X/Y 軸)
+          </h3>
+          
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- 橫屏 (Landscape) -->
+            <div class="bg-gray-800/60 p-3 rounded-2xl border border-gray-700/60 space-y-3">
+              <div class="font-semibold text-cyan-300 flex justify-between">
+                <span>🖥️ 橫屏 (Landscape)</span>
+                <span class="text-xs text-gray-400">預設 高4.0X / 寬3.0X</span>
+              </div>
+              <div>
+                <div class="flex justify-between text-xs text-gray-400 mb-1">
+                  <span>高度 (Y-Scale): <b id="landYVal" class="text-white">4.0X</b></span>
+                </div>
+                <input type="range" id="landYSlider" min="1.0" max="8.0" step="0.1" value="4.0" class="w-full accent-cyan-400">
+              </div>
+              <div>
+                <div class="flex justify-between text-xs text-gray-400 mb-1">
+                  <span>寬度 (X-Scale): <b id="landXVal" class="text-white">3.0X</b></span>
+                </div>
+                <input type="range" id="landXSlider" min="1.0" max="6.0" step="0.1" value="3.0" class="w-full accent-cyan-400">
+              </div>
+            </div>
+
+            <!-- 直屏 (Portrait) -->
+            <div class="bg-gray-800/60 p-3 rounded-2xl border border-gray-700/60 space-y-3">
+              <div class="font-semibold text-purple-300 flex justify-between">
+                <span>📱 直屏 (Portrait)</span>
+                <span class="text-xs text-gray-400">預設 高4.0X / 寬1.3X</span>
+              </div>
+              <div>
+                <div class="flex justify-between text-xs text-gray-400 mb-1">
+                  <span>高度 (Y-Scale): <b id="portYVal" class="text-white">4.0X</b></span>
+                </div>
+                <input type="range" id="portYSlider" min="1.0" max="8.0" step="0.1" value="4.0" class="w-full accent-purple-400">
+              </div>
+              <div>
+                <div class="flex justify-between text-xs text-gray-400 mb-1">
+                  <span>寬度 (X-Scale): <b id="portXVal" class="text-white">1.3X</b></span>
+                </div>
+                <input type="range" id="portXSlider" min="0.8" max="4.0" step="0.1" value="1.3" class="w-full accent-purple-400">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Web Audio 頻率微調 (以 100Hz 為單位) -->
+        <div>
+          <h3 class="text-base font-semibold text-gray-300 mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-file-audio text-pink-400"></i> 音效頻率調控 (以 100Hz 調整)
+          </h3>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- 哨音 -->
+            <div class="bg-gray-800/60 p-3 rounded-2xl border border-gray-700/60 space-y-2">
+              <div class="flex justify-between items-center">
+                <span class="font-semibold text-pink-300">哨音 (Whistle - 階段切換)</span>
+                <button onclick="playWhistleSound()" class="px-2 py-1 bg-pink-600/80 hover:bg-pink-500 rounded text-xs text-white">測試音效</button>
+              </div>
+              <div class="flex items-center justify-between pt-1">
+                <button onclick="adjustFreq('whistle', -100)" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded font-bold text-white">-100Hz</button>
+                <span id="whistleFreqText" class="font-mono font-bold text-pink-400">2500 Hz</span>
+                <button onclick="adjustFreq('whistle', 100)" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded font-bold text-white">+100Hz</button>
+              </div>
+            </div>
+
+            <!-- 嗶聲 -->
+            <div class="bg-gray-800/60 p-3 rounded-2xl border border-gray-700/60 space-y-2">
+              <div class="flex justify-between items-center">
+                <span class="font-semibold text-amber-300">短嗶聲 (Beep - 倒數3秒)</span>
+                <button onclick="playBeepSound()" class="px-2 py-1 bg-amber-600/80 hover:bg-amber-500 rounded text-xs text-white">測試音效</button>
+              </div>
+              <div class="flex items-center justify-between pt-1">
+                <button onclick="adjustFreq('beep', -100)" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded font-bold text-white">-100Hz</button>
+                <span id="beepFreqText" class="font-mono font-bold text-amber-400">1000 Hz</span>
+                <button onclick="adjustFreq('beep', 100)" class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded font-bold text-white">+100Hz</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="pt-4 mt-6 border-t border-gray-800 flex justify-end">
+        <button id="saveCloseSettingsBtn" class="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-extrabold rounded-xl shadow-lg transition">
+          儲存並關閉
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- JavaScript 核心系統 -->
+  <script>
+    /* ===================================================================
+       1. 預設選單 Presets
+       =================================================================== */
+    const PRESETS = {
+      preset1: { name: "54劍", prepSec: 15, workSec: 300, restSec: 90, rounds: 8, prepMode: 'down', workMode: 'up', restMode: 'up' },
+      preset2: { name: "32刀", prepSec: 15, workSec: 240, restSec: 90, rounds: 8, prepMode: 'down', workMode: 'up', restMode: 'up' },
+      preset3: { name: "九九42式", prepSec: 15, workSec: 360, restSec: 120, rounds: 8, prepMode: 'down', workMode: 'up', restMode: 'up' },
+      preset4: { name: "64式第1段", prepSec: 15, workSec: 420, restSec: 120, rounds: 8, prepMode: 'down', workMode: 'up', restMode: 'up' },
+      preset5: { name: "64式第2段", prepSec: 15, workSec: 480, restSec: 150, rounds: 8, prepMode: 'down', workMode: 'up', restMode: 'up' },
+      preset6: { name: "24式", prepSec: 15, workSec: 300, restSec: 120, rounds: 8, prepMode: 'down', workMode: 'up', restMode: 'up' },
+      custom:  { name: "自訂設定", prepSec: 15, workSec: 300, restSec: 90, rounds: 8, prepMode: 'down', workMode: 'up', restMode: 'up' }
+    };
+
+    /* ===================================================================
+       2. 設定與 LocalStorage
+       =================================================================== */
+    let appConfig = {
+      selectedPreset: 'preset1',
+      prepSec: 15,
+      workSec: 300,
+      restSec: 90,
+      rounds: 8,
+      prepMode: 'down',
+      workMode: 'up',
+      restMode: 'up',
+      scale: {
+        landY: 4.0,
+        landX: 3.0,
+        portY: 4.0,
+        portX: 1.3
+      },
+      whistleFreq: 2500,
+      beepFreq: 1000,
+      isMuted: false
+    };
+
+    function loadSavedConfig() {
+      try {
+        const saved = localStorage.getItem('interval_timer_config');
+        if (saved) {
+          appConfig = { ...appConfig, ...JSON.parse(saved) };
+        }
+      } catch (e) {
+        console.warn('LocalStorage load error:', e);
+      }
+    }
+
+    function saveConfig() {
+      try {
+        localStorage.setItem('interval_timer_config', JSON.stringify(appConfig));
+      } catch (e) {
+        console.warn('LocalStorage save error:', e);
+      }
+    }
+
+    /* ===================================================================
+       3. 核心計時運轉 Engine
+       =================================================================== */
+    const PHASE = { IDLE: 'IDLE', PREP: 'PREP', WORK: 'WORK', REST: 'REST', DONE: 'DONE' };
+
+    let timerState = {
+      currentPhase: PHASE.IDLE,
+      isRunning: false,
+      currentRound: 1,
+      elapsedInPhase: 0,   // 當前階段已過的秒數
+      targetPhaseSec: 15,  // 當前階段總設定秒數
+      timerInterval: null
+    };
+
+    /* ===================================================================
+       4. Web Audio API 音效引擎
+       =================================================================== */
+    let audioCtx = null;
+
+    function initAudioContext() {
+      if (!audioCtx) {
+        const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtxClass) audioCtx = new AudioCtxClass();
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function playWhistleSound() {
+      if (appConfig.isMuted) return;
+      initAudioContext();
+      if (!audioCtx) return;
+
+      try {
+        const now = audioCtx.currentTime;
+        const duration = 0.6;
+
+        const osc1 = audioCtx.createOscillator();
+        const osc2 = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        const baseFreq = appConfig.whistleFreq || 2500;
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(baseFreq, now);
+        osc1.frequency.exponentialRampToValueAtTime(baseFreq * 1.1, now + 0.1);
+        osc1.frequency.exponentialRampToValueAtTime(baseFreq * 0.95, now + duration);
+
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(baseFreq * 1.02, now);
+
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.4, now + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+        osc1.connect(gain);
+        osc2.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc1.start(now);
+        osc2.start(now);
+        osc1.stop(now + duration);
+        osc2.stop(now + duration);
+
+        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      } catch (err) {
+        console.warn('Audio play err:', err);
+      }
+    }
+
+    function playBeepSound(isFinal = false) {
+      if (appConfig.isMuted) return;
+      initAudioContext();
+      if (!audioCtx) return;
+
+      try {
+        const now = audioCtx.currentTime;
+        const duration = isFinal ? 0.4 : 0.15;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        const freq = isFinal ? (appConfig.beepFreq * 1.5) : appConfig.beepFreq;
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now);
+
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.3, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start(now);
+        osc.stop(now + duration);
+
+        if (navigator.vibrate) navigator.vibrate(isFinal ? 300 : 80);
+      } catch (err) {
+        console.warn('Audio play err:', err);
+      }
+    }
+
+    /* ===================================================================
+       5. Screen Wake Lock (維持螢幕長亮)
+       =================================================================== */
+    let wakeLock = null;
+
+    async function requestWakeLock() {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLock = await navigator.wakeLock.request('screen');
+          updateWakeLockUI(true);
+        }
+      } catch (err) {
+        updateWakeLockUI(false);
+      }
+    }
+
+    function releaseWakeLock() {
+      if (wakeLock !== null) {
+        wakeLock.release().then(() => {
+          wakeLock = null;
+          updateWakeLockUI(false);
+        });
+      }
+    }
+
+    function updateWakeLockUI(isActive) {
+      const btn = document.getElementById('wakeLockBtn');
+      if (isActive) {
+        btn.classList.remove('text-gray-400');
+        btn.classList.add('text-amber-400', 'bg-amber-500/20');
+      } else {
+        btn.classList.remove('text-amber-400', 'bg-amber-500/20');
+        btn.classList.add('text-gray-400');
+      }
+    }
+
+    /* ===================================================================
+       6. 渲染與 Layout Scaling
+       =================================================================== */
+    function updateLayoutAndScale() {
+      const isLandscape = window.innerWidth > window.innerHeight;
+      const displayEl = document.getElementById('timeDisplay');
+      
+      const scaleY = isLandscape ? appConfig.scale.landY : appConfig.scale.portY;
+      const scaleX = isLandscape ? appConfig.scale.landX : appConfig.scale.portX;
+
+      displayEl.style.fontSize = '4.5rem';
+      displayEl.style.transform = `scale(${scaleX}, ${scaleY})`;
+    }
+
+    function formatMMSS(seconds) {
+      const m = Math.floor(Math.abs(seconds) / 60);
+      const s = Math.abs(seconds) % 60;
+      return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    function getCurrentMode() {
+      if (timerState.currentPhase === PHASE.PREP) return appConfig.prepMode;
+      if (timerState.currentPhase === PHASE.WORK) return appConfig.workMode;
+      if (timerState.currentPhase === PHASE.REST) return appConfig.restMode;
+      return 'down';
+    }
+
+    function renderUI() {
+      const timeDisplay = document.getElementById('timeDisplay');
+      const phaseBadge = document.getElementById('phaseBadge');
+      const roundDisplay = document.getElementById('roundDisplay');
+      const modeIndicator = document.getElementById('modeIndicator');
+      const body = document.body;
+
+      const currentMode = getCurrentMode();
+      let displaySec = 0;
+
+      if (currentMode === 'up') {
+        displaySec = timerState.elapsedInPhase;
+      } else {
+        displaySec = Math.max(0, timerState.targetPhaseSec - timerState.elapsedInPhase);
+      }
+
+      timeDisplay.textContent = formatMMSS(displaySec);
+      modeIndicator.textContent = currentMode === 'up' ? '▲ 正數計時' : '▼ 倒數計時';
+      roundDisplay.textContent = `${timerState.currentRound} / ${appConfig.rounds}`;
+
+      // 背景色與階段情境轉換
+      body.classList.remove('bg-prep', 'bg-work', 'bg-rest', 'bg-idle', 'bg-done');
+
+      if (!timerState.isRunning && timerState.currentPhase === PHASE.IDLE) {
+        body.classList.add('bg-idle');
+        phaseBadge.textContent = '待機準備 IDLE';
+      } else if (timerState.currentPhase === PHASE.PREP) {
+        body.classList.add('bg-prep');
+        phaseBadge.textContent = '準備 PREP';
+      } else if (timerState.currentPhase === PHASE.WORK) {
+        body.classList.add('bg-work');
+        phaseBadge.textContent = '練習 WORK';
+      } else if (timerState.currentPhase === PHASE.REST) {
+        body.classList.add('bg-rest');
+        phaseBadge.textContent = '休息 REST';
+      } else if (timerState.currentPhase === PHASE.DONE) {
+        body.classList.add('bg-done');
+        phaseBadge.textContent = '訓練完成 DONE 🎉';
+        timeDisplay.textContent = "00:00";
+      }
+
+      // 播放/暫停鍵
+      const playIcon = document.getElementById('playIcon');
+      const playText = document.getElementById('playText');
+      const playBtn = document.getElementById('togglePlayBtn');
+
+      if (timerState.isRunning) {
+        playIcon.className = 'fa-solid fa-pause';
+        playText.textContent = '暫停';
+        playBtn.className = playBtn.className.replace(/from-\S+ to-\S+/, 'from-amber-500 to-orange-600');
+      } else {
+        playIcon.className = 'fa-solid fa-play';
+        playText.textContent = timerState.currentPhase === PHASE.IDLE ? '開始訓練' : '繼續';
+        playBtn.className = playBtn.className.replace(/from-\S+ to-\S+/, 'from-emerald-500 to-teal-600');
+      }
+    }
+
+    /* ===================================================================
+       7. 加減秒數核心微調邏輯 (關鍵修復)
+       =================================================================== */
+    function adjustCurrentPhaseTime(secondsDelta) {
+      initAudioContext();
+
+      // 若目前處於待機或完成狀態，點擊加減按鈕則自動初始化並啟動「準備階段」
+      if (timerState.currentPhase === PHASE.IDLE || timerState.currentPhase === PHASE.DONE) {
+        timerState.currentRound = 1;
+        switchPhase(PHASE.PREP);
+      }
+
+      const mode = getCurrentMode();
+
+      if (mode === 'up') {
+        // 正數計時模式：增加或減少已跑秒數
+        timerState.elapsedInPhase = Math.max(0, timerState.elapsedInPhase + secondsDelta);
+      } else {
+        // 倒數計時模式：調整剩餘秒數 (透過調整總目標秒數實作)
+        const currentRemaining = timerState.targetPhaseSec - timerState.elapsedInPhase;
+        const newRemaining = Math.max(0, currentRemaining + secondsDelta);
+        timerState.targetPhaseSec = timerState.elapsedInPhase + newRemaining;
+      }
+
+      renderUI();
+    }
+
+    /* ===================================================================
+       8. 計時流程控制
+       =================================================================== */
+    function startTimer() {
+      if (timerState.isRunning) return;
+      initAudioContext();
+      requestWakeLock();
+
+      if (timerState.currentPhase === PHASE.IDLE || timerState.currentPhase === PHASE.DONE) {
+        timerState.currentRound = 1;
+        switchPhase(PHASE.PREP);
+      }
+
+      timerState.isRunning = true;
+      timerState.timerInterval = setInterval(tick, 1000);
+      renderUI();
+    }
+
+    function pauseTimer() {
+      if (!timerState.isRunning) return;
+      timerState.isRunning = false;
+      clearInterval(timerState.timerInterval);
+      releaseWakeLock();
+      renderUI();
+    }
+
+    function togglePlay() {
+      if (timerState.isRunning) {
+        pauseTimer();
+      } else {
+        startTimer();
+      }
+    }
+
+    function resetTimer() {
+      pauseTimer();
+      timerState.currentPhase = PHASE.IDLE;
+      timerState.currentRound = 1;
+      timerState.elapsedInPhase = 0;
+      timerState.targetPhaseSec = appConfig.prepSec;
+      renderUI();
+    }
+
+    function switchPhase(newPhase) {
+      timerState.currentPhase = newPhase;
+      timerState.elapsedInPhase = 0;
+
+      if (newPhase === PHASE.PREP) {
+        timerState.targetPhaseSec = appConfig.prepSec;
+      } else if (newPhase === PHASE.WORK) {
+        timerState.targetPhaseSec = appConfig.workSec;
+      } else if (newPhase === PHASE.REST) {
+        timerState.targetPhaseSec = appConfig.restSec;
+      }
+
+      if (newPhase !== PHASE.IDLE) {
+        playWhistleSound();
+      }
+      renderUI();
+    }
+
+    function nextPhase() {
+      if (timerState.currentPhase === PHASE.PREP) {
+        switchPhase(PHASE.WORK);
+      } else if (timerState.currentPhase === PHASE.WORK) {
+        if (timerState.currentRound >= appConfig.rounds) {
+          timerState.currentPhase = PHASE.DONE;
+          pauseTimer();
+          playWhistleSound();
+        } else {
+          switchPhase(PHASE.REST);
+        }
+      } else if (timerState.currentPhase === PHASE.REST) {
+        timerState.currentRound++;
+        switchPhase(PHASE.WORK);
+      }
+    }
+
+    function tick() {
+      timerState.elapsedInPhase++;
+      const remainingSec = timerState.targetPhaseSec - timerState.elapsedInPhase;
+
+      // 倒數最後 3 秒提示音
+      if (remainingSec > 0 && remainingSec <= 3) {
+        playBeepSound(false);
+      }
+
+      if (timerState.elapsedInPhase >= timerState.targetPhaseSec) {
+        nextPhase();
+      } else {
+        renderUI();
+      }
+    }
+
+    /* ===================================================================
+       9. 選單與 Modal 互動
+       =================================================================== */
+    function syncSettingsToUI() {
+      document.getElementById('cfgPrepText').textContent = `${appConfig.prepSec} 秒`;
+      document.getElementById('cfgWorkText').textContent = `${Math.floor(appConfig.workSec/60)}分 ${appConfig.workSec%60}秒`;
+      document.getElementById('cfgRestText').textContent = `${Math.floor(appConfig.restSec/60)}分 ${appConfig.restSec%60}秒`;
+      document.getElementById('cfgRoundsText').textContent = `${appConfig.rounds} 組`;
+
+      document.getElementById('prepModeSelect').value = appConfig.prepMode;
+      document.getElementById('workModeSelect').value = appConfig.workMode;
+      document.getElementById('restModeSelect').value = appConfig.restMode;
+
+      document.getElementById('landYSlider').value = appConfig.scale.landY;
+      document.getElementById('landYVal').textContent = `${appConfig.scale.landY.toFixed(1)}X`;
+      document.getElementById('landXSlider').value = appConfig.scale.landX;
+      document.getElementById('landXVal').textContent = `${appConfig.scale.landX.toFixed(1)}X`;
+
+      document.getElementById('portYSlider').value = appConfig.scale.portY;
+      document.getElementById('portYVal').textContent = `${appConfig.scale.portY.toFixed(1)}X`;
+      document.getElementById('portXSlider').value = appConfig.scale.portX;
+      document.getElementById('portXVal').textContent = `${appConfig.scale.portX.toFixed(1)}X`;
+
+      document.getElementById('whistleFreqText').textContent = `${appConfig.whistleFreq} Hz`;
+      document.getElementById('beepFreqText').textContent = `${appConfig.beepFreq} Hz`;
+    }
+
+    function applyPreset(presetKey) {
+      appConfig.selectedPreset = presetKey;
+      const preset = PRESETS[presetKey];
+      if (preset) {
+        appConfig.prepSec = preset.prepSec;
+        appConfig.workSec = preset.workSec;
+        appConfig.restSec = preset.restSec;
+        appConfig.rounds = preset.rounds;
+        appConfig.prepMode = preset.prepMode;
+        appConfig.workMode = preset.workMode;
+        appConfig.restMode = preset.restMode;
+      }
+      saveConfig();
+      syncSettingsToUI();
+      resetTimer();
+    }
+
+    function adjustSettingVal(key, delta) {
+      if (key === 'prepSec') appConfig.prepSec = Math.max(5, appConfig.prepSec + delta);
+      if (key === 'workSec') appConfig.workSec = Math.max(5, appConfig.workSec + delta);
+      if (key === 'restSec') appConfig.restSec = Math.max(5, appConfig.restSec + delta);
+      if (key === 'rounds') appConfig.rounds = Math.max(1, appConfig.rounds + delta);
+
+      appConfig.selectedPreset = 'custom';
+      document.getElementById('presetSelect').value = 'custom';
+
+      saveConfig();
+      syncSettingsToUI();
+      if (!timerState.isRunning) resetTimer();
+    }
+
+    function updateCustomMode(phaseKey, val) {
+      if (phaseKey === 'prep') appConfig.prepMode = val;
+      if (phaseKey === 'work') appConfig.workMode = val;
+      if (phaseKey === 'rest') appConfig.restMode = val;
+      
+      appConfig.selectedPreset = 'custom';
+      document.getElementById('presetSelect').value = 'custom';
+
+      saveConfig();
+      renderUI();
+    }
+
+    function adjustFreq(type, delta) {
+      if (type === 'whistle') {
+        appConfig.whistleFreq = Math.max(500, Math.min(8000, appConfig.whistleFreq + delta));
+      } else {
+        appConfig.beepFreq = Math.max(300, Math.min(5000, appConfig.beepFreq + delta));
+      }
+      saveConfig();
+      syncSettingsToUI();
+    }
+
+    /* ===================================================================
+       10. 初始化事件綁定
+       =================================================================== */
+    document.addEventListener('DOMContentLoaded', () => {
+      loadSavedConfig();
+      syncSettingsToUI();
+
+      const presetSelect = document.getElementById('presetSelect');
+      presetSelect.value = appConfig.selectedPreset;
+      presetSelect.addEventListener('change', (e) => applyPreset(e.target.value));
+
+      document.getElementById('togglePlayBtn').addEventListener('click', togglePlay);
+      document.getElementById('resetBtn').addEventListener('click', resetTimer);
+      document.getElementById('skipBtn').addEventListener('click', () => {
+        if (timerState.isRunning || timerState.currentPhase !== PHASE.IDLE) {
+          nextPhase();
+        }
+      });
+
+      const muteBtn = document.getElementById('audioMuteBtn');
+      muteBtn.addEventListener('click', () => {
+        appConfig.isMuted = !appConfig.isMuted;
+        muteBtn.innerHTML = appConfig.isMuted ? 
+          '<i class="fa-solid fa-volume-xmark text-red-400"></i>' : 
+          '<i class="fa-solid fa-volume-high"></i>';
+        saveConfig();
+      });
+
+      const modal = document.getElementById('settingsModal');
+      document.getElementById('openSettingsBtn').addEventListener('click', () => {
+        syncSettingsToUI();
+        modal.classList.remove('hidden');
+      });
+      document.getElementById('closeSettingsBtn').addEventListener('click', () => modal.classList.add('hidden'));
+      document.getElementById('saveCloseSettingsBtn').addEventListener('click', () => modal.classList.add('hidden'));
+
+      // Sliders 綁定
+      document.getElementById('landYSlider').addEventListener('input', (e) => {
+        appConfig.scale.landY = parseFloat(e.target.value);
+        document.getElementById('landYVal').textContent = `${appConfig.scale.landY.toFixed(1)}X`;
+        updateLayoutAndScale();
+        saveConfig();
+      });
+      document.getElementById('landXSlider').addEventListener('input', (e) => {
+        appConfig.scale.landX = parseFloat(e.target.value);
+        document.getElementById('landXVal').textContent = `${appConfig.scale.landX.toFixed(1)}X`;
+        updateLayoutAndScale();
+        saveConfig();
+      });
+      document.getElementById('portYSlider').addEventListener('input', (e) => {
+        appConfig.scale.portY = parseFloat(e.target.value);
+        document.getElementById('portYVal').textContent = `${appConfig.scale.portY.toFixed(1)}X`;
+        updateLayoutAndScale();
+        saveConfig();
+      });
+      document.getElementById('portXSlider').addEventListener('input', (e) => {
+        appConfig.scale.portX = parseFloat(e.target.value);
+        document.getElementById('portXVal').textContent = `${appConfig.scale.portX.toFixed(1)}X`;
+        updateLayoutAndScale();
+        saveConfig();
+      });
+
+      window.addEventListener('resize', updateLayoutAndScale);
+      window.addEventListener('orientationchange', updateLayoutAndScale);
+
+      updateLayoutAndScale();
+      resetTimer();
+    });
+  </script>
+</body>
+</html>
