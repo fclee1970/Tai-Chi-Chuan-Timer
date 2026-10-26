@@ -785,7 +785,7 @@
     }
 
     function adjustSettingVal(key, delta) {
-      if (key === 'prepSec') appConfig.prepSec = Math.max(5, appConfig.prepSec + delta);
+      if (key === 'prepSec') appConfig.prepSec = Math.max(0, appConfig.prepSec + delta);
       if (key === 'workSec') appConfig.workSec = Math.max(5, appConfig.workSec + delta);
       if (key === 'restSec') appConfig.restSec = Math.max(5, appConfig.restSec + delta);
       if (key === 'rounds') appConfig.rounds = Math.max(1, appConfig.rounds + delta);
